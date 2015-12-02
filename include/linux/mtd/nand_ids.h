@@ -54,6 +54,7 @@ static struct nand_flash_dev nand_flash_ids[] = {
 	{"Samsung K9F5616Q0C",    NAND_MFR_SAMSUNG, 0x45, 25, 0, 2, 0x4000, 1},
 	{"Samsung K9K1216Q0C",    NAND_MFR_SAMSUNG, 0x46, 26, 0, 3, 0x4000, 1},
 	{"Samsung K9F1G08U0M",    NAND_MFR_SAMSUNG, 0xf1, 27, 0, 2, 0, 0},
+	{"Micron MT29F2G16ABD",   NAND_MFR_MICRON,  0xba, 26, 0, 3, 0x20000, 1},  /* large block won't work*/
 	{NULL,}
 };
 

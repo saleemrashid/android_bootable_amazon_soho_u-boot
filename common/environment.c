@@ -112,6 +112,9 @@ env_t environment __PPCENV__ = {
 #if defined(CONFIG_BOOTCOMMAND)
 	"bootcmd="	CONFIG_BOOTCOMMAND		"\0"
 #endif
+#if defined(CONFIG_RECOVERYCMD)
+        "recoverycmd="  CONFIG_RECOVERYCMD              "\0"
+#endif
 #if defined(CONFIG_RAMBOOTCOMMAND)
 	"ramboot="	CONFIG_RAMBOOTCOMMAND		"\0"
 #endif

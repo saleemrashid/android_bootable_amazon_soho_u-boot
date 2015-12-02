@@ -22,7 +22,7 @@
  * MA 02111-1307 USA
  */
 #include <common.h>
-#include <asm/arch/omap2420.h>
+#include <asm/arch/cpu.h>
 #include <asm/io.h>
 #include <asm/arch/bits.h>
 #include <asm/arch/mux.h>
@@ -59,7 +59,7 @@ int board_init (void)
 	gpmc_init(); /* in SRAM or SDRM, finish GPMC */
 
 	gd->bd->bi_arch_number = MACH_TYPE_OMAP_H4;		/* board id for linux */
-	gd->bd->bi_boot_params = (OMAP2420_SDRC_CS0+0x100);	/* adress of boot parameters */
+	gd->bd->bi_boot_params = (OMAP24XX_SDRC_CS0+0x100);	/* adress of boot parameters */
 
 	return 0;
 }
@@ -159,7 +159,7 @@ void ether_init (void)
 #ifdef CONFIG_DRIVER_LAN91C96
 	int cnt = 20;
 
-	__raw_writeb(0x3,OMAP2420_CTRL_BASE+0x10a); /*protect->gpio95 */
+	__raw_writeb(0x3,OMAP24XX_CTRL_BASE+0x10a); /*protect->gpio95 */
 
 	__raw_writew(0x0, LAN_RESET_REGISTER);
 	do {
@@ -223,7 +223,7 @@ int dram_init (void)
 
 	gd->bd->bi_dram[0].start = PHYS_SDRAM_1;
 	gd->bd->bi_dram[0].size = size0;
-	if(rev == CPU_2420_2422_ES1) /* ES1's 128MB remap granularity isn't worth doing */
+	if(rev == CPU_242X_ES1) /* ES1's 128MB remap granularity isn't worth doing */
 		gd->bd->bi_dram[1].start = PHYS_SDRAM_2;
 	else /* ES2 and above can remap at 32MB granularity */
 		gd->bd->bi_dram[1].start = PHYS_SDRAM_1+size0;
@@ -738,7 +738,7 @@ void muxSetupSDRC(void)
  *****************************************************************************/
 void update_mux(u32 btype,u32 mtype)
 {
-	u32 cpu, base = OMAP2420_CTRL_BASE;
+	u32 cpu, base = OMAP24XX_CTRL_BASE;
 	cpu = get_cpu_type();
 
 	if (btype == BOARD_H4_MENELAUS) {

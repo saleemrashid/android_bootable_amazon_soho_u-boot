@@ -72,6 +72,9 @@ uchar default_environment[] = {
 #ifdef	CONFIG_BOOTCOMMAND
 	"bootcmd="	CONFIG_BOOTCOMMAND		"\0"
 #endif
+#if defined(CONFIG_RECOVERYCMD)
+        "recoverycmd="  CONFIG_RECOVERYCMD              "\0"
+#endif
 #ifdef	CONFIG_RAMBOOTCOMMAND
 	"ramboot="	CONFIG_RAMBOOTCOMMAND		"\0"
 #endif
@@ -147,7 +150,7 @@ int default_environment_size = sizeof(default_environment);
 
 void env_crc_update (void)
 {
-	env_ptr->crc = crc32(0, env_ptr->data, ENV_SIZE);
+	/*env_ptr->crc = crc32(0, env_ptr->data, ENV_SIZE);*/
 }
 
 static uchar env_get_char_init (int index)
@@ -278,7 +281,7 @@ int env_complete(char *var, int maxv, char *cmdv[], int bufsz, char *buf)
 			;
 
 		lval = (char *)env_get_addr(i);
-		rval = strchr(lval, '=');
+		rval = (char *)strchr(lval, '=');
 		if (rval != NULL) {
 			vallen = rval - lval;
 			rval++;

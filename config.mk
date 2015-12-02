@@ -35,6 +35,8 @@ PLATFORM_LDFLAGS =
 #
 # [Tested on NetBSD/i386 1.5 + cross-powerpc-netbsd-1.3]
 
+Q=@
+
 ifeq ($(ARCH),ppc)
 ifeq ($(CROSS_COMPILE),powerpc-netbsd-)
 PLATFORM_CPPFLAGS+= -D__PPC__
@@ -112,11 +114,11 @@ OBJDUMP = $(CROSS_COMPILE)objdump
 RANLIB	= $(CROSS_COMPILE)RANLIB
 
 RELFLAGS= $(PLATFORM_RELFLAGS)
-DBGFLAGS= -g # -DDEBUG
+DBGFLAGS= #-g # -DDEBUG
 OPTFLAGS= -Os #-fomit-frame-pointer
 ifndef LDSCRIPT
 #LDSCRIPT := $(TOPDIR)/board/$(BOARDDIR)/u-boot.lds.debug
-LDSCRIPT := $(TOPDIR)/board/$(BOARDDIR)/u-boot.lds
+LDSCRIPT := $(TOPDIR)/cpu/$(CPU)/u-boot.lds
 endif
 OBJCFLAGS += --gap-fill=0xff
 
@@ -191,12 +193,17 @@ export	CONFIG_SHELL HPATH HOSTCC HOSTCFLAGS CROSS_COMPILE \
 export	TEXT_BASE PLATFORM_CPPFLAGS PLATFORM_RELFLAGS CPPFLAGS CFLAGS AFLAGS
 
 #########################################################################
-
+## VIJAY LOOK THIS FUN
 %.s:	%.S
-	$(CPP) $(AFLAGS) -o $@ $(CURDIR)/$<
+	@echo "   CPP   $<"
+	$(Q)$(CPP) $(AFLAGS) -o $@ $(CURDIR)/$<
+
 %.o:	%.S
-	$(CC) $(AFLAGS) -c -o $@ $(CURDIR)/$<
+	@echo "   CS    $<"
+	$(Q)$(CC) $(AFLAGS) -c -o $@ $(CURDIR)/$<
+
 %.o:	%.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	@echo "   CC    $<"
+	$(Q)$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
 
 #########################################################################

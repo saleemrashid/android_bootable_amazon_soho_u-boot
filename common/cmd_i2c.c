@@ -105,6 +105,8 @@ static uint	i2c_mm_last_alen;
 static uchar i2c_no_probes[] = CFG_I2C_NOPROBES;
 #endif
 
+int select_bus(int, int);
+
 static int
 mod_i2c_mem(cmd_tbl_t *cmdtp, int incrflag, int flag, int argc, char *argv[]);
 extern int cmd_get_data_size(char* arg, int default_size);
@@ -313,7 +315,6 @@ int do_i2c_mw ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 
 	return (0);
 }
-
 
 /* Calculate a CRC on memory
  *
@@ -874,7 +875,132 @@ int do_sdram  ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 #endif	/* CFG_CMD_SDRAM */
 
 
+#if defined(CFG_I2C_BUS_SELECT)
+int do_i2c_bus(cmd_tbl_t * cmdtp, int flag, int argc, char *argv[])
+{
+	int bus_idx, bus_spd, res = 0;
+	if (argc < 3) {
+		printf("Usage[%d]:\n%s\n", argc, cmdtp->usage);
+		return 1;
+	}
+	bus_idx = simple_strtoul(argv[1], NULL, 16);
+	bus_spd = simple_strtoul(argv[2], NULL, 16);
+	printf("Setting bus[%d] to Speed[%d]: ", bus_idx, bus_spd);
+	res = select_bus(bus_idx, bus_spd);
+	if (res) {
+		printf("FAILED\n");
+	} else {
+		printf("PASS\n");
+	}
+	return res;
+}
+#endif				/* bus select */
 /***************************************************/
+
+// Functions do_i2c_generic_read() and do_i2c_generic_write() are added to support I2C devices
+// that follow the "<chip_address<<1 + r/w> <data> ..." protocol, instead of
+// the more common "<chip_address<<1 + r/w> <register_number> <data> ..." protocol.
+
+extern int generic_i2c_write(u8 devaddr, u8 *value, u8 len);
+extern int generic_i2c_read(u8 devaddr, u8 *value, u8 len);
+
+#define MAX_DATA_LEN_FOR_I2C_GENERIC_CMD 32
+
+int do_i2c_generic_read ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	uchar	chip;
+	uchar	count = 0;
+	uchar	i;
+	uchar	data[MAX_DATA_LEN_FOR_I2C_GENERIC_CMD];
+
+	/*
+ 	 * Chip is always specified.
+ 	 */
+	chip = simple_strtoul(argv[1], NULL, 16);
+
+
+	/*
+	 * count is always specified.
+	 */
+
+	count = simple_strtoul(argv[2], NULL, 16);;
+
+	if (count > MAX_DATA_LEN_FOR_I2C_GENERIC_CMD)
+	{
+		printf("Error: we can only read up to %d bytes\n", MAX_DATA_LEN_FOR_I2C_GENERIC_CMD);
+		return 0;
+	}
+
+	/*
+	 * Start the sequence ...
+	 */
+
+	printf("read from addr 0x%X: %d bytes\n", chip, (int) count);
+
+	generic_i2c_read(chip, data, count);
+
+	for (i = 0; (i < count) && (i < MAX_DATA_LEN_FOR_I2C_GENERIC_CMD); i++)
+	{
+		printf("%x ", data[i]);
+	}
+	printf("\n");
+
+	return 0;
+}
+
+int do_i2c_generic_write ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	uchar	chip;
+	uchar	count = 0;
+	uchar	i;
+	uchar	data[MAX_DATA_LEN_FOR_I2C_GENERIC_CMD];
+
+	if ( (argc-2) > MAX_DATA_LEN_FOR_I2C_GENERIC_CMD )
+	{
+		printf("Error: we can only write up to %d bytes\n", MAX_DATA_LEN_FOR_I2C_GENERIC_CMD);
+		return 0;
+	}
+
+	/*
+ 	 * Chip is always specified.
+ 	 */
+	chip = simple_strtoul(argv[1], NULL, 16);
+
+
+	/*
+	 * Value to write is always specified.
+	 */
+
+	for (i = 0; (i < MAX_DATA_LEN_FOR_I2C_GENERIC_CMD) && ((i+2) < argc); i++)
+	{
+		data[i] = simple_strtoul(argv[i+2], NULL, 16);	//
+	}
+	count = i;
+
+	/*
+	 * Start the sequence ...
+	 */
+
+	printf("write to addr 0x%X: %d bytes\n", chip, (int) count);
+	generic_i2c_write(chip, data, count);
+
+	return 0;
+}
+
+U_BOOT_CMD(
+	i2cr,	3,	1,	do_i2c_generic_read,					\
+	"i2cr    - generic i2c read \n",						\
+	"<addr> <count> \n    - i2c read <count> bytes from chip <addr>. Example: i2cr 4a 4 \n"	\
+);
+
+U_BOOT_CMD(
+	i2cw,	32,	1,	do_i2c_generic_write,					\
+	"i2cw    - generic i2c write \n",						\
+	"<addr> <byte> ... \n    - i2c write to chip <addr>. Example: i2cw 4a c0 4 05 ef \n"	\
+);
+
+/***************************************************/
+
 
 U_BOOT_CMD(
 	imd,	4,	1,	do_i2c_md,		\
@@ -896,7 +1022,7 @@ U_BOOT_CMD(
 
 U_BOOT_CMD(
 	imw,	5,	1,	do_i2c_mw,
-	"imw     - memory write (fill)\n",
+	"imw     - i2c memory write (fill)\n",
 	"chip address[.0, .1, .2] value [count]\n    - memory write (fill)\n"
 );
 
@@ -930,4 +1056,12 @@ U_BOOT_CMD(
 	"      (valid chip values 50..57)\n"
 );
 #endif
+
+#if defined(CFG_I2C_BUS_SELECT)
+U_BOOT_CMD(ibus, 3, 1, do_i2c_bus,
+	   "ibus    - Select i2c Bus\n",
+	   "bus_index speed\n    - Selects the bus index and sets the speed (0x64(ST),0x190(FS),0xD48(HS))\n"
+	   "      (reports success/failure)\n");
+#endif
+
 #endif	/* CFG_CMD_I2C */

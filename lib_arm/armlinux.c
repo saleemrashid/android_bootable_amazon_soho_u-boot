@@ -29,6 +29,7 @@
 #ifdef CONFIG_HAS_DATAFLASH
 #include <dataflash.h>
 #endif
+#include <bootimg.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -49,9 +50,14 @@ static void setup_memory_tags (bd_t *bd);
 # endif
 static void setup_commandline_tag (bd_t *bd, char *commandline);
 
+#ifdef CONFIG_MACADDR_TAG
+void setup_macaddr_tag (struct tag **params);
+#endif
+
 #if 0
 static void setup_ramdisk_tag (bd_t *bd);
 #endif
+
 # ifdef CONFIG_INITRD_TAG
 static void setup_initrd_tag (bd_t *bd, ulong initrd_start,
 			      ulong initrd_end);
@@ -72,6 +78,8 @@ static struct tag *params;
 #else
 # define SHOW_BOOT_PROGRESS(arg)
 #endif
+
+extern const u8 *idme_get_board_serial(void);
 
 extern image_header_t header;	/* from cmd_bootm.c */
 
@@ -239,6 +247,30 @@ void do_bootm_linux (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 #ifdef CONFIG_REVISION_TAG
 	setup_revision_tag (&params);
 #endif
+
+#ifdef CONFIG_REVISION16_TAG
+	setup_revision16_tag (&params);
+#endif
+
+#ifdef CONFIG_SERIAL16_TAG
+	setup_serial16_tag (&params);
+#endif
+
+#ifdef CONFIG_MACADDR_TAG
+	setup_macaddr_tag (&params);
+#endif
+
+#ifdef CONFIG_BOOTMODE_TAG
+	setup_bootmode_tag (&params);
+#endif
+
+#ifdef CONFIG_GYROCAL_TAG
+	setup_gyrocal_tag (&params);
+#endif
+#ifdef CONFIG_PRODUCTID_TAG
+	setup_productid_tag (&params);
+#endif
+
 #ifdef CONFIG_SETUP_MEMORY_TAGS
 	setup_memory_tags (bd);
 #endif
@@ -270,6 +302,78 @@ void do_bootm_linux (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 	theKernel (0, bd->bi_arch_number, bd->bi_boot_params);
 }
 
+
+void do_booti_linux (boot_img_hdr *hdr)
+{
+	ulong initrd_start, initrd_end;
+	void (*theKernel)(int zero, int arch, uint params);
+	bd_t *bd = gd->bd;
+
+	theKernel = (void (*)(int, int, uint))(hdr->kernel_addr);
+
+	initrd_start = hdr->ramdisk_addr;
+	initrd_end = initrd_start + hdr->ramdisk_size;
+
+#if defined (CONFIG_SETUP_MEMORY_TAGS)
+	setup_start_tag (bd);
+#ifdef CONFIG_SERIAL_TAG
+	setup_serial_tag (&params);
+#endif
+#ifdef CONFIG_REVISION_TAG
+	setup_revision_tag (&params);
+#endif
+
+ #ifdef CONFIG_REVISION16_TAG
+	setup_revision16_tag (&params);
+#endif
+#ifdef CONFIG_SERIAL16_TAG
+        setup_serial16_tag (&params);
+#endif
+#ifdef CONFIG_MACADDR_TAG
+        setup_macaddr_tag (&params);
+#endif
+
+#ifdef CONFIG_BOOTMODE_TAG
+        setup_bootmode_tag (&params);
+#endif
+
+#ifdef CONFIG_GYROCAL_TAG
+        setup_gyrocal_tag (&params);
+#endif
+#ifdef CONFIG_PRODUCTID_TAG
+	setup_productid_tag (&params);
+#endif
+
+#ifdef CONFIG_SETUP_MEMORY_TAGS
+	setup_memory_tags (bd);
+#endif
+#ifdef CONFIG_CMDLINE_TAG
+	setup_commandline_tag (bd, hdr->cmdline);
+#endif
+#ifdef CONFIG_INITRD_TAG
+	if (hdr->ramdisk_size)
+		setup_initrd_tag (bd, initrd_start, initrd_end);
+#endif
+#if defined (CONFIG_VFD) || defined (CONFIG_LCD)
+	setup_videolfb_tag ((gd_t *) gd);
+#endif
+	setup_end_tag (bd);
+#endif
+
+	/* we assume that the kernel is in place */
+	printf ("\nStarting kernel ...\n\n");
+
+#ifdef CONFIG_USB_DEVICE
+	{
+		extern void udc_disconnect (void);
+		udc_disconnect ();
+	}
+#endif
+
+	cleanup_before_linux ();
+
+	theKernel (0, bd->bi_arch_number, bd->bi_boot_params);
+}
 
 #if defined (CONFIG_SETUP_MEMORY_TAGS) || \
     defined (CONFIG_CMDLINE_TAG) || \
@@ -333,6 +437,17 @@ static void setup_commandline_tag (bd_t *bd, char *commandline)
 
 	strcpy (params->u.cmdline.cmdline, p);
 
+	p = idme_get_board_serial();
+	if (p) {
+		/* Macros teg_next() require size dimension [sizeof(u32*)]
+		 * Length increases by +1 for the terminating character and
+		 * +3 for aligment to sizeof (u32*)
+		 */
+		params->hdr.size += (sprintf(params->u.cmdline.cmdline +
+			strlen(params->u.cmdline.cmdline),
+			" androidboot.serialno=%s", p) + 1 + 3) >> 2;
+	}
+
 	params = tag_next (params);
 }
 
@@ -394,13 +509,39 @@ void setup_serial_tag (struct tag **tmp)
 }
 #endif
 
+
+#ifdef CONFIG_SERIAL16_TAG
+/* 16-byte serial number tag (alphanumeric string) */
+void setup_serial16_tag(struct tag **in_params)
+{
+	const u8 *sn = 0;
+
+	sn = idme_get_board_serial();
+	if (!sn){
+                printf("Erro, failed to get_board_serial\n");
+		return; /* ignore if NULL was returned. */
+        }
+
+        printf("board serial: %s\n", sn);
+	params->hdr.tag = ATAG_SERIAL16;
+	params->hdr.size = tag_size (tag_id16);
+	memcpy(params->u.id16.data, sn, sizeof params->u.id16.data);
+	params = tag_next (params);
+}
+#endif  /* CONFIG_SERIAL16_TAG */
+
 #ifdef CONFIG_REVISION_TAG
 void setup_revision_tag(struct tag **in_params)
 {
 	u32 rev = 0;
-	u32 get_board_rev(void);
 
+#ifdef CONFIG_BOARD_REVISION
+	rev = gd->bd->bi_board_revision;
+#else
+	u32 get_board_rev(void);
 	rev = get_board_rev();
+#endif
+
 	params->hdr.tag = ATAG_REVISION;
 	params->hdr.size = tag_size (tag_revision);
 	params->u.revision.rev = rev;
@@ -408,6 +549,222 @@ void setup_revision_tag(struct tag **in_params)
 }
 #endif  /* CONFIG_REVISION_TAG */
 
+#ifdef CONFIG_REVISION16_TAG
+extern const u8 *idme_get_board_id(void);
+
+/* 16-byte revision tag (alphanumeric string) */
+void setup_revision16_tag(struct tag **in_params)
+{
+	const u8 *rev = 0;
+
+	rev = idme_get_board_id();
+	if (!rev){
+                printf("Erro, failed to get_board_id\n");
+		return; /* ignore if NULL was returned. */
+        }
+        printf("board id: %s\n", rev);
+	params->hdr.tag = ATAG_REVISION16;
+	params->hdr.size = tag_size (tag_id16);
+	memcpy (params->u.id16.data, rev, sizeof(params->u.id16.data));
+	params = tag_next (params);
+}
+#endif  /* CONFIG_REVISION16_TAG */
+
+#ifdef CONFIG_MACADDR_TAG
+#ifdef CONFIG_ENABLE_IDME
+#include <idme.h>
+#endif
+
+/* MAC address/secret tag (alphanumeric strings) */
+void setup_macaddr_tag(struct tag **in_params)
+{
+#ifdef CONFIG_ENABLE_IDME
+    char mac_buf[IDME_MAX_MAC_LEN+1];
+    char sec_buf[IDME_MAX_SEC_LEN+1];
+    char bt_mac_buf[IDME_MAX_MAC_LEN+1];
+
+    memset(mac_buf, 0, IDME_MAX_MAC_LEN+1);
+    memset(sec_buf, 0, IDME_MAX_SEC_LEN+1);
+    memset(bt_mac_buf, 0, IDME_MAX_MAC_LEN+1);
+
+    if (idme_get_var("mac", mac_buf, sizeof(mac_buf))){
+            printf("Error, failed to get the mac address from idme\n");
+            return;
+    }
+
+    printf("mac: %s\n", mac_buf);
+
+    if (idme_get_var("bt",bt_mac_buf, sizeof(bt_mac_buf))){
+            printf("Error, failed to get the mac address from idme\n");
+            return;
+    }
+
+    printf("bt mac: %s\n", bt_mac_buf);
+
+
+    if (idme_get_var("sec", sec_buf, sizeof(sec_buf))){
+            printf("Error, failed to get the sec address from idme\n");
+            return;
+    }
+    printf("sec: %s\n", sec_buf);
+
+    params->hdr.tag = ATAG_MACADDR;
+    params->hdr.size = tag_size (tag_macaddr);
+
+    memcpy (params->u.macaddr.secret,
+            sec_buf,
+            sizeof params->u.macaddr.secret);
+
+    memcpy (params->u.macaddr.wifi_addr,
+            mac_buf,
+            sizeof params->u.macaddr.wifi_addr);
+
+    memcpy (params->u.macaddr.bt_addr,
+            bt_mac_buf,
+            sizeof params->u.macaddr.bt_addr);
+
+    params = tag_next (params);
+#endif
+
+}
+#endif  /* CONFIG_MACADDR_TAG */
+
+
+#ifdef CONFIG_BOOTMODE_TAG
+#ifdef CONFIG_CMD_IDME
+#include <idme.h>
+#endif
+
+/* bootmode tag (alphanumeric strings) */
+void setup_bootmode_tag(struct tag **in_params)
+{
+#ifdef CONFIG_ENABLE_IDME
+    char bootmode_buf[IDME_MAX_BOOTMODE_LEN+1];
+    char postmode_buf[IDME_MAX_BOOTMODE_LEN+1];
+
+    unsigned long count = 0;
+
+    memset(bootmode_buf, 0, IDME_MAX_BOOTMODE_LEN+1);
+    memset(postmode_buf, 0, IDME_MAX_BOOTMODE_LEN+1);
+
+    if (idme_get_var("bootmode", bootmode_buf, sizeof(bootmode_buf))){
+            printf("Error, failed to get the bootmode\n");
+            return;
+    }
+
+    printf("bootmode: %s\n",bootmode_buf);
+
+
+    if (idme_get_var("postmode", postmode_buf, sizeof(postmode_buf))){
+            printf("Error, failed to get postmode\n");
+            return;
+    }
+
+    memcpy(&count, postmode_buf, sizeof(unsigned long));
+    printf("count in postmode buf = %lu\n", count);
+
+    //    printf("postmode: %s\n", postmode_buf);
+
+    params->hdr.tag = ATAG_BOOTMODE;
+    params->hdr.size = tag_size (tag_bootmode);
+    memcpy (params->u.bootmode.boot,
+            bootmode_buf,
+            sizeof params->u.bootmode.boot);
+    memcpy (params->u.bootmode.post,
+            postmode_buf,
+            sizeof params->u.bootmode.post);
+
+
+    memcpy((char*)&count, params->u.bootmode.post, sizeof(unsigned long));
+
+    printf("postmode in atag = %lu\n", count);
+
+    params = tag_next (params);
+#endif
+
+}
+#endif  /* CONFIG_BOOTMODE_TAG */
+
+#ifdef CONFIG_GYROCAL_TAG
+#ifdef CONFIG_CMD_IDME
+#include <idme.h>
+#endif
+
+/* gyrocal tag */
+void setup_gyrocal_tag(struct tag **in_params)
+{
+#ifdef CONFIG_ENABLE_IDME
+    int j = 0;
+    char gyrocal_data_buf[IDME_MAX_GYROCAL_LEN+1];
+//    params = (struct tag *) bd->bi_boot_params;
+
+    memset(gyrocal_data_buf, 0, IDME_MAX_GYROCAL_LEN+1);
+
+    if (idme_get_var("gyrocal", gyrocal_data_buf, sizeof(gyrocal_data_buf))){
+            printf("Error, failed to get the gyrocal\n");
+            return;
+    }
+
+    printf("gyrocal: %s\n",gyrocal_data_buf);
+#if 1
+        printf("gyrocal_size=%d. \n",sizeof(gyrocal_data_buf));
+
+        printf("        0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
+
+        for ( j=0 ; j < sizeof(gyrocal_data_buf) ; j++){
+
+             if( j%16 == 0 ){
+                     printf("\n  %03X:", j/16);
+                     printf(" %02X", gyrocal_data_buf[j]);
+             }else{
+                     printf(" %02X", gyrocal_data_buf[j]);
+             }
+        }
+        printf("\n\n");
+#endif
+
+    params->hdr.tag = ATAG_GYROCAL;
+    params->hdr.size = tag_size (tag_gyrocal);
+    memcpy (params->u.gyrocal.gyrocal_data,
+            gyrocal_data_buf,
+            sizeof params->u.gyrocal.gyrocal_data);
+	params = tag_next (params);
+#endif
+
+}
+#endif  /* CONFIG_GYROCAL_TAG */
+#ifdef CONFIG_PRODUCTID_TAG
+#ifdef CONFIG_CMD_IDME
+#include <idme.h>
+#endif
+
+/* productid tag (alphanumeric strings) */
+void setup_productid_tag(struct tag **in_params)
+{
+#ifdef CONFIG_ENABLE_IDME
+    char pid_buf[IDME_MAX_PRODUCT_ID_LEN+1];
+
+    unsigned long count = 0;
+
+    memset(pid_buf, 0, IDME_MAX_PRODUCT_ID_LEN+1);
+
+    if (idme_get_var("pid", pid_buf, sizeof(pid_buf))){
+            printf("Error, failed to get the pid\n");
+            return;
+    }
+
+    printf("pid: %s\n",pid_buf);
+
+    params->hdr.tag = ATAG_PRODUCTID;
+    params->hdr.size = tag_size (tag_productid);
+    memcpy (params->u.productid.pid,
+            pid_buf,
+            sizeof params->u.productid.pid);
+    params = tag_next (params);
+#endif
+
+}
+#endif  /* CONFIG_PRODUCTID_TAG */
 
 static void setup_end_tag (bd_t *bd)
 {

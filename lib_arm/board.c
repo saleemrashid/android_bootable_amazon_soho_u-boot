@@ -52,10 +52,30 @@
 #include "../drivers/lan91c96.h"
 #endif
 
+#ifdef CONFIG_AUDIO
+#include "../drivers/soho_sound.h"
+#endif
+
 DECLARE_GLOBAL_DATA_PTR;
 
 #if (CONFIG_COMMANDS & CFG_CMD_NAND)
+#ifdef ENV_IS_VARIABLE
+extern u8 is_nand;
+#endif
 void nand_init (void);
+#endif
+
+#if (CONFIG_COMMANDS & CFG_CMD_FLASH)
+#ifdef ENV_IS_VARIABLE
+extern u8 is_flash;
+#endif
+#endif
+
+#if (CONFIG_COMMANDS & CFG_CMD_ONENAND)
+#ifdef ENV_IS_VARIABLE
+extern u8 is_onenand;
+#endif
+void onenand_init(void);
 #endif
 
 ulong monitor_flash_len;
@@ -63,6 +83,10 @@ ulong monitor_flash_len;
 #ifdef CONFIG_HAS_DATAFLASH
 extern int  AT91F_DataflashInit(void);
 extern void dataflash_print_info(void);
+#endif
+
+#ifdef CONFIG_MMC
+extern void board_mmc_init(void);
 #endif
 
 #ifndef CONFIG_IDENT_STRING
@@ -225,6 +249,7 @@ init_fnc_t *init_sequence[] = {
 #if defined(CONFIG_DISPLAY_CPUINFO)
 	print_cpuinfo,		/* display cpu info (and speed) */
 #endif
+
 #if defined(CONFIG_DISPLAY_BOARDINFO)
 	checkboard,		/* display board info */
 #endif
@@ -238,7 +263,7 @@ void start_armboot (void)
 	init_fnc_t **init_fnc_ptr;
 	char *s;
 #ifndef CFG_NO_FLASH
-	ulong size;
+	ulong size = 0;
 #endif
 #if defined(CONFIG_VFD) || defined(CONFIG_LCD)
 	unsigned long addr;
@@ -263,6 +288,9 @@ void start_armboot (void)
 
 #ifndef CFG_NO_FLASH
 	/* configure available FLASH banks */
+#ifdef ENV_IS_VARIABLE
+	if (is_flash) 
+#endif
 	size = flash_init ();
 	display_flash_config (size);
 #endif /* CFG_NO_FLASH */
@@ -297,14 +325,32 @@ void start_armboot (void)
 	mem_malloc_init (_armboot_start - CFG_MALLOC_LEN);
 
 #if (CONFIG_COMMANDS & CFG_CMD_NAND)
-	puts ("NAND:  ");
-	nand_init();		/* go init the NAND */
+#ifdef ENV_IS_VARIABLE
+	if (is_nand) 
+#endif
+	{
+		puts ("NAND:");
+		nand_init();		/* go init the NAND */
+	}
+#endif
+
+#if (CONFIG_COMMANDS & CFG_CMD_ONENAND)
+#ifdef ENV_IS_VARIABLE
+	if (is_onenand)
+#endif
+	onenand_init();
 #endif
 
 #ifdef CONFIG_HAS_DATAFLASH
 	AT91F_DataflashInit();
 	dataflash_print_info();
 #endif
+
+#if (CONFIG_COMMANDS & CFG_CMD_MMC)
+	/* puts("EMMC partitons init:"); */
+	board_mmc_init();
+#endif
+
 
 	/* initialize environment */
 	env_relocate ();
@@ -368,12 +414,6 @@ void start_armboot (void)
 	cs8900_get_enetaddr (gd->bd->bi_enetaddr);
 #endif
 
-#if defined(CONFIG_DRIVER_SMC91111) || defined (CONFIG_DRIVER_LAN91C96)
-	if (getenv ("ethaddr")) {
-		smc_set_mac_addr(gd->bd->bi_enetaddr);
-	}
-#endif /* CONFIG_DRIVER_SMC91111 || CONFIG_DRIVER_LAN91C96 */
-
 	/* Initialize from environment */
 	if ((s = getenv ("loadaddr")) != NULL) {
 		load_addr = simple_strtoul (s, NULL, 16);
@@ -387,11 +427,21 @@ void start_armboot (void)
 #ifdef BOARD_LATE_INIT
 	board_late_init ();
 #endif
+
+#ifndef CONFIG_MACH_OTTER2
+   /* twl6030 init */
+	twl6032_init();
+#endif
+
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
 #if defined(CONFIG_NET_MULTI)
 	puts ("Net:   ");
 #endif
 	eth_initialize(gd->bd);
+#endif
+
+#ifdef CONFIG_AUDIO
+	play_click();
 #endif
 	/* main_loop() can return to retry autoboot, if so just run it again. */
 	for (;;) {

@@ -2310,6 +2310,12 @@ int nand_scan (struct mtd_info *mtd, int maxchips)
 	/* Select the device */
 	this->select_chip(mtd, 0);
 
+	/*
+	 * Reset the chip, required by some chips
+	 * (e.g. Micron MT29FxGxxxxx) after power-up
+	 */
+	this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 	/* Send the command for reading device ID */
 	this->cmdfunc (mtd, NAND_CMD_READID, 0x00, -1);
 
@@ -2415,6 +2421,12 @@ int nand_scan (struct mtd_info *mtd, int maxchips)
 	for (i=1; i < maxchips; i++) {
 		this->select_chip(mtd, i);
 
+		/*
+		 * Reset the chip, required by some chips
+		 * (e.g. Micron MT29FxGxxxxx) after power-up
+		 */
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 		/* Send the command for reading device ID */
 		this->cmdfunc (mtd, NAND_CMD_READID, 0x00, -1);
 
@@ -2495,7 +2507,8 @@ int nand_scan (struct mtd_info *mtd, int maxchips)
 	 * if 3byte/512byte hardware ECC is selected and we have 256 byte pagesize
 	 * fallback to software ECC
 	*/
-	this->eccsize = 256;	/* set default eccsize */
+	if (512 != this->eccsize)
+		this->eccsize = 256;	/* set default eccsize */
 	this->eccbytes = 3;
 
 	switch (this->eccmode) {
@@ -2572,7 +2585,7 @@ int nand_scan (struct mtd_info *mtd, int maxchips)
 		break;
 	case NAND_ECC_HW3_256:
 	case NAND_ECC_SOFT:
-		this->eccsteps = mtd->oobblock / 256;
+		this->eccsteps = mtd->oobblock / this->eccsize;
 		break;
 
 	case NAND_ECC_NONE:

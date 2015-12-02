@@ -111,7 +111,8 @@
 #define START(dent)	(FAT2CPU16((dent)->start) \
 			+ (mydata->fatsize != 32 ? 0 : \
 			  (FAT2CPU16((dent)->starthi) << 16)))
-
+#define CHECK_CLUST(x, fatsize) ((x) <= 1 || \
+			(x) >= ((fatsize) != 32 ? 0xfff0 : 0xffffff0))
 
 typedef struct boot_sector {
 	__u8	ignored[3];	/* Bootstrap code */
@@ -146,7 +147,7 @@ typedef struct volume_info
 	__u8 ext_boot_sign;	/* 0x29 if fields below exist (DOS 3.3+) */
 	__u8 volume_id[4];	/* Volume ID number */
 	char volume_label[11];	/* Volume label */
-	char fs_type[8];	/* Typically FAT12, FAT16, or FAT32 */
+	char fs_type[9];	/* Typically FAT12, FAT16, or FAT32 */
 	/* Boot code comes next, all but 2 bytes to fill up sector */
 	/* Boot sign comes last, 2 bytes */
 } volume_info;
@@ -183,7 +184,7 @@ typedef struct {
 	__u16	rootdir_sect;	/* Start sector of root directory */
 	__u16	clust_size;	/* Size of clusters in sectors */
 	short	data_begin;	/* The sector of the first cluster, can be negative */
-	__u8	fatbuf[FATBUFSIZE]; /* Current FAT buffer */
+	__u32	fatbuf[FATBUFSIZE]; /* Current FAT buffer */
 	int	fatbufnum;	/* Used by get_fatent, init to -1 */
 } fsdata;
 

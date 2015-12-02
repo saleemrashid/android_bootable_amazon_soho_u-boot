@@ -60,7 +60,7 @@
 # if defined(CFG_ENV_ADDR_REDUND) && !defined(CFG_ENV_SIZE_REDUND)
 #  define CFG_ENV_SIZE_REDUND	CFG_ENV_SIZE
 # endif
-# if (CFG_ENV_ADDR >= CFG_MONITOR_BASE) && \
+# if ((!defined (ENV_IS_VARIABLE)) || !ENV_IS_VARIABLE) && (CFG_ENV_ADDR >= CFG_MONITOR_BASE) && \
      (CFG_ENV_ADDR+CFG_ENV_SIZE) <= (CFG_MONITOR_BASE + CFG_MONITOR_LEN)
 #  define ENV_IS_EMBEDDED	1
 # endif
@@ -81,6 +81,15 @@
 # endif
 #endif /* CFG_ENV_IS_IN_NAND */
 
+
+#if defined(CFG_ENV_IS_IN_EMMC)
+# ifndef CFG_ENV_OFFSET
+#  error "Need to define CFG_ENV_OFFSET when using CFG_ENV_IS_IN_EMMC"
+# endif
+# ifndef CFG_ENV_SIZE
+#  error "Need to define CFG_ENV_SIZE when using CFG_ENV_IS_IN_EMMC"
+# endif
+#endif /* CFG_ENV_IS_IN_EMMC */
 
 #ifdef CFG_REDUNDAND_ENVIRONMENT
 # define ENV_HEADER_SIZE	(sizeof(unsigned long) + 1)

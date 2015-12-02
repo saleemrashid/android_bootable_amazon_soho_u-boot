@@ -21,6 +21,7 @@
 # MA 02111-1307 USA
 #
 
+MAKEFLAGS += --no-print-directory
 VERSION = 1
 PATCHLEVEL = 1
 SUBLEVEL = 4
@@ -61,7 +62,8 @@ ifeq ($(ARCH),ppc)
 CROSS_COMPILE = powerpc-linux-
 endif
 ifeq ($(ARCH),arm)
-CROSS_COMPILE = arm-linux-
+#CROSS_COMPILE = arm-linux-
+CROSS_COMPILE = arm-none-linux-gnueabi-
 endif
 ifeq ($(ARCH),i386)
 ifeq ($(HOSTARCH),i386)
@@ -133,6 +135,7 @@ LIBS += disk/libdisk.a
 LIBS += rtc/librtc.a
 LIBS += dtt/libdtt.a
 LIBS += drivers/libdrivers.a
+LIBS += drivers/onenand/libonenand.a
 LIBS += drivers/nand/libnand.a
 LIBS += drivers/nand_legacy/libnand_legacy.a
 LIBS += drivers/sk98lin/libsk98lin.a
@@ -148,8 +151,8 @@ PLATFORM_LIBS += -L $(shell dirname `$(CC) $(CFLAGS) -print-libgcc-file-name`) -
 # The "tools" are needed early, so put this first
 # Don't include stuff already done in $(LIBS)
 SUBDIRS	= tools \
-	  examples \
 	  post \
+	  examples \
 	  post/cpu
 .PHONY : $(SUBDIRS)
 
@@ -186,10 +189,11 @@ u-boot:		depend version $(SUBDIRS) $(OBJS) $(LIBS) $(LDSCRIPT)
 			-Map u-boot.map -o u-boot
 
 $(LIBS):
-		$(MAKE) -C `dirname $@`
+		@$(MAKE) -C `dirname $@` EXTRA_CFLAGS="$(EXTRA_CFLAGS)"
+
 
 $(SUBDIRS):
-		$(MAKE) -C $@ all
+		@$(MAKE) -C $@ all
 
 version:
 		@echo -n "#define U_BOOT_VERSION \"U-Boot " > $(VERSION_FILE); \
@@ -199,7 +203,7 @@ version:
 		echo "\"" >> $(VERSION_FILE)
 
 gdbtools:
-		$(MAKE) -C tools/gdb || exit 1
+		@$(MAKE) -C tools/gdb || exit 1
 
 depend dep:
 		@for dir in $(SUBDIRS) ; do $(MAKE) -C $$dir .depend ; done
@@ -1623,6 +1627,12 @@ omap1610h2_cs_autoboot_config:	unconfig
 	fi;
 	@./mkconfig -a $(call xtract_omap1610xxx,$@) arm arm926ejs omap1610inn NULL omap
 
+omap1710h3_config :    unconfig
+	@./mkconfig $(@:_config=) arm arm926ejs omap1710h3
+
+omapv1030gsample_config :    unconfig
+	@./mkconfig $(@:_config=) arm arm926ejs omapv1030gsample
+
 omap730p2_config \
 omap730p2_cs0boot_config \
 omap730p2_cs3boot_config :	unconfig
@@ -1797,8 +1807,68 @@ zylonite_config :
 #########################################################################
 ## ARM1136 Systems
 #########################################################################
+xtract_omap2430 = $(subst _gdp,,$(subst _config,,$1))
+
 omap2420h4_config :    unconfig
 	@./mkconfig $(@:_config=) arm arm1136 omap2420h4
+
+omap2430sdp_gdp_config \
+omap2430sdp_config :    unconfig
+	@if [ "$(findstring _gdp_, $@)" ] ; then \
+		echo "#define OMAP2430_SDP_GDP_CONFIG" >> ./include/config.h ; \
+		echo "Configuring for GDP and .. "; \
+	fi;
+	@./mkconfig -a $(call xtract_omap2430,$@) arm arm1136 omap2430sdp
+
+#########################################################################
+## ARM CORTEX Systems
+#########################################################################
+omap3430sdp_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap3 omap3430sdp
+
+omap3430labrador_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap3 omap3430labrador
+
+omap3430zoom2_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap3 omap3430zoom2
+
+omap44XXtablet_config \
+omap4430sdp_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap4 omap4430sdp
+	@if [ "$(findstring tablet, $@)" ] ; then \
+		echo "#define OMAP44XX_TABLET_CONFIG" >> ./include/config.h ; \
+		echo "Configuring for OMAP4 Tablet .... "; \
+	fi;
+
+omap4430panda_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap4 omap4430panda
+
+bowser_config:    unconfig
+	@./mkconfig $(@:_config=) arm omap4 bowser 
+	echo "#define CONFIG_MACH_BOWSER" >> ./include/config.h ; \
+	echo "Configuring for Bowser .... ";
+
+
+tate_config:    unconfig
+	@./mkconfig $(@:_config=) arm omap4 bowser
+	echo "#define CONFIG_MACH_BOWSER_SUBTYPE_TATE" >> ./include/config.h ; \
+	echo "Configuring for Tate .... ";
+
+jem_config:    unconfig
+	@./mkconfig $(@:_config=) arm omap4 bowser
+	echo "#define CONFIG_SPLASH" >> ./include/config.h ; \
+	echo "#define CONFIG_MACH_BOWSER_SUBTYPE_JEM" >> ./include/config.h ; \
+	echo "Configuring for Jem with splash screen enabled.... ";
+
+soho_config:    unconfig
+	@./mkconfig $(@:_config=) arm omap4 bowser
+	echo "#define CONFIG_MACH_BOWSER_SUBTYPE_SOHO" >> ./include/config.h ; \
+	echo "Configuring for soho with splash screen enabled.... ";
+
+omap4430otter2_config :    unconfig
+	@./mkconfig $(@:_config=) arm omap4 omap4430otter2
+	echo "#define CONFIG_MACH_OTTER2" >> ./include/config.h ; \
+	echo "Configuring for Otter2 .... ";
 
 #========================================================================
 # i386

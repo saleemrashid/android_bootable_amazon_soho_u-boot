@@ -38,6 +38,8 @@
 #include <hush.h>
 #endif
 
+#include <fastboot.h>
+#include <bootmsg.h>
 #include <post.h>
 
 #ifdef CONFIG_SILENT_CONSOLE
@@ -84,6 +86,7 @@ int do_mdm_init = 0;
 extern void mdm_init(void); /* defined in board.c */
 #endif
 
+char is_recovery_mode = 0;
 /***************************************************************************
  * Watch for 'delay' seconds for autoboot stop or autoboot delay string.
  * returns: 0 -  no key string, allow autoboot
@@ -235,7 +238,7 @@ static __inline__ int abortboot(int bootdelay)
 #ifdef CONFIG_MENUPROMPT
 	printf(CONFIG_MENUPROMPT, bootdelay);
 #else
-	printf("Hit any key to stop autoboot: %2d ", bootdelay);
+	printf("Hit ESC key to stop autoboot: %2d ", bootdelay);
 #endif
 
 #if defined CONFIG_ZERO_BOOTDELAY_CHECK
@@ -245,9 +248,10 @@ static __inline__ int abortboot(int bootdelay)
 	 */
 	if (bootdelay >= 0) {
 		if (tstc()) {	/* we got a key press	*/
-			(void) getc();  /* consume input	*/
-			puts ("\b\b\b 0");
-			abort = 1; 	/* don't auto boot	*/
+			if ( getc() == 0x1b ) {  /* consume input	*/
+				puts ("\b\b\b 0");
+				abort = 1; 	/* don't auto boot	*/
+			}
 		}
 	}
 #endif
@@ -259,16 +263,19 @@ static __inline__ int abortboot(int bootdelay)
 		/* delay 100 * 10ms */
 		for (i=0; !abort && i<100; ++i) {
 			if (tstc()) {	/* we got a key press	*/
-				abort  = 1;	/* don't auto boot	*/
-				bootdelay = 0;	/* no more delay	*/
 # ifdef CONFIG_MENUKEY
 				menukey = getc();
 # else
-				(void) getc();  /* consume input	*/
+				if ( getc() != 0x1b ) {
+					goto _do_bootdelay_;
+				}
 # endif
+				abort  = 1;	/* don't auto boot	*/
+				bootdelay = 0;	/* no more delay	*/
 				break;
 			}
-			udelay (10000);
+_do_bootdelay_:
+			udelay(10000);
 		}
 
 		printf ("\b\b\b%2d ", bootdelay);
@@ -364,6 +371,8 @@ void main_loop (void)
 #ifdef CONFIG_AUTO_COMPLETE
 	install_auto_complete();
 #endif
+	if (fastboot_preboot())
+		run_command("fastboot", 0);
 
 #ifdef CONFIG_PREBOOT
 	if ((p = getenv ("preboot")) != NULL) {
@@ -402,7 +411,31 @@ void main_loop (void)
 	}
 	else
 #endif /* CONFIG_BOOTCOUNT_LIMIT */
-		s = getenv ("bootcmd");
+	{
+		char * boot_env = "bootcmd";  /* default environment variable used to boot */
+#ifdef CFG_BOOTMSG
+		char* bootmsg_command;
+		bootmsg_command = bootmsg_get_command();
+
+		if(bootmsg_command != NULL) 
+		{
+		        printf("Found a command in the bootmsg block: %s\n", bootmsg_command);
+
+			if(strcmp(bootmsg_command, BOOTMSG_COMMAND_RECOVERY) == 0) 
+			{
+				printf("-> Boot into recovery mode...\n");
+				boot_env = "recoverycmd";
+				is_recovery_mode = 1;
+			}
+			else if(strcmp(bootmsg_command, BOOTMSG_COMMAND_NORMAL) == 0)
+			{
+				printf("-> Boot into normal mode...\n");
+				boot_env = "bootcmd";
+			}
+		}
+#endif
+			s = getenv (boot_env);
+	}
 
 	debug ("### main_loop: bootcmd=\"%s\"\n", s ? s : "<UNDEFINED>");
 

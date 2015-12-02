@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2000-2006
+ * (C) Copyright 2000-2002
  * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
  *
  * See file CREDITS for list of people who contributed to this
@@ -32,13 +32,11 @@
 #include <zlib.h>
 #include <bzlib.h>
 #include <environment.h>
+#include <fastboot.h>
 #include <asm/byteorder.h>
-
-#ifdef CONFIG_OF_FLAT_TREE
-#include <ft_build.h>
-#endif
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <mmc.h>
+#include <asm/io.h>
+#include <otter2_lcd.h>
 
  /*cmd_boot.c*/
  extern int do_reset (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
@@ -70,6 +68,9 @@ DECLARE_GLOBAL_DATA_PTR;
 #include <dataflash.h>
 #endif
 
+/* Android mkbootimg format*/
+#include <bootimg.h>
+
 /*
  * Some systems (for example LWMON) have very short watchdog periods;
  * we must make sure to split long operations like memmove() or
@@ -90,7 +91,7 @@ static int image_info (unsigned long addr);
 
 #if (CONFIG_COMMANDS & CFG_CMD_IMLS)
 #include <flash.h>
-extern flash_info_t flash_info[]; /* info for FLASH chips */
+extern flash_info_t flash_info[CFG_MAX_FLASH_BANKS]; /* info for FLASH chips */
 static int do_imls (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[]);
 #endif
 
@@ -142,13 +143,80 @@ static boot_os_Fcn do_bootm_lynxkdi;
 extern void lynxkdi_boot( image_header_t * );
 #endif
 
+image_header_t header;
+
+ulong load_addr = CFG_LOAD_ADDR;		/* Default Load Address */
+
 #ifndef CFG_BOOTM_LEN
 #define CFG_BOOTM_LEN	0x800000	/* use 8MByte as default max gunzip size */
 #endif
 
-image_header_t header;
+#define SIGNATURE_AUTHENTICATION
+#ifdef SIGNATURE_AUTHENTICATION
+#include <asm/arch-omap4/omap4_signature.h>
+#include <asm/arch-omap4/rom_public_api_func.h>
+#endif
 
-ulong load_addr = CFG_LOAD_ADDR;		/* Default Load Address */
+#ifdef SIGNATURE_AUTHENTICATION
+int certificate_signature_verify(u8* Certificate_Ptr)
+{
+	u32 lv_Return, sha1_hash[5];
+	u32 Certificate_length = ISW_CERTIFICATE_LENGTH;
+	u8* Certificate_Signature_Ptr = (u8*)((u8*)Certificate_Ptr + ISW_CERTIFICATE_LENGTH);
+	u32 Key_Rights = CERT_RSA_PK_Verify_ISW;
+	Cl_Hash_SHA1_Struct hash_sha1;
+	CERT_Hashes* ISW_hash_struct_ptr = (CERT_Hashes*)((u8*)Certificate_Ptr + 52);
+	u32* ISW_hash_ptr = (u32*)(ISW_hash_struct_ptr->hash);
+
+	// Note - for some reason on bowser 5, the all board fail authentication,
+	// so one should build with 	return  API_HAL_RET_VALUE_OK;
+
+	lv_Return = omap_smc_ppa(API_HAL_KM_VERIFYCERTIFICATESIGNATURE_INDEX, 0, 7, 4,
+									Certificate_Ptr, 
+									Certificate_length, 
+									Certificate_Signature_Ptr, 
+									Key_Rights);
+							
+	if (lv_Return == API_HAL_RET_VALUE_OK){
+		printf(">>>> Signature verification passed!\n");
+	} else {
+		printf(">>>> Signature verification failed!(lv_Return=0x%08X)\n",lv_Return);
+
+		/* Display a boot failure screen when kernel signature verification failed */
+#ifndef CONFIG_MACH_OTTER2
+		show_provfailed();
+#endif
+		return lv_Return;   
+	}
+	hash_sha1.out = (u32*)&sha1_hash[0];
+	hash_sha1.in = (u32*)((u8*)Certificate_Ptr + ISW_hash_struct_ptr->start_offset);
+	hash_sha1.in_byte_size = ISW_hash_struct_ptr->length;	
+	hash_sha1.dma = 0;	
+
+	lv_Return = omap_smc_ppa(API_HAL_PPA_SERV_HASH_SHA1_INDEX, 0, 0x7, 1, &hash_sha1); 
+                                       										
+	if (lv_Return != API_HAL_RET_VALUE_OK) {
+		printf(">>>> SHA verification PPA call failed!(lv_Return=0x%08X)\n",lv_Return);
+		/* Display a boot failure screen when kernel SHA verification failed */
+#ifndef CONFIG_MACH_OTTER2
+		show_provfailed();
+#endif
+		return lv_Return;        
+	}
+
+	lv_Return = memcmp(ISW_hash_ptr, &sha1_hash[0], 20);
+	if(lv_Return == API_HAL_RET_VALUE_OK){
+		printf(">>>> SHA verification passed!\n");                
+	} else {
+		printf(">>>> SHA verification failed!(lv_Return=0x%08X)\n",lv_Return);
+		/* Display a boot failure screen when kernel SHA verification failed */
+#ifndef CONFIG_MACH_OTTER2
+		show_provfailed();
+#endif
+	}
+	return lv_Return;
+}
+#endif
 
 int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -170,6 +238,18 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	} else {
 		addr = simple_strtoul(argv[1], NULL, 16);
 	}
+
+#ifdef SIGNATURE_AUTHENTICATION
+	printf("Kernel Signature Authentication...\n");
+	if (certificate_signature_verify((u8*)addr) != 0) {
+#ifdef CONFIG_MACH_OTTER2
+		show_authfailed();
+#endif
+		hang();
+	}
+	printf("Kernel Signature Authentication passed \n");
+	addr = (u8*)addr+ISW_CERTIFICATE_LENGTH_FULL;
+#endif
 
 	SHOW_BOOT_PROGRESS (1);
 	printf ("## Booting image at %08lx ...\n", addr);
@@ -207,21 +287,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	checksum = ntohl(hdr->ih_hcrc);
 	hdr->ih_hcrc = 0;
 
-	if (crc32 (0, (uchar *)data, len) != checksum) {
+	if (crc32 (0, (unsigned char *)data, len) != checksum) {
 		puts ("Bad Header Checksum\n");
 		SHOW_BOOT_PROGRESS (-2);
 		return 1;
 	}
 	SHOW_BOOT_PROGRESS (3);
-
-#ifdef CONFIG_HAS_DATAFLASH
-	if (addr_dataflash(addr)){
-		len  = ntohl(hdr->ih_size) + sizeof(image_header_t);
-		read_dataflash(addr, len, (char *)CFG_LOAD_ADDR);
-		addr = CFG_LOAD_ADDR;
-	}
-#endif
-
 
 	/* for multi-file images we need the data part, too */
 	print_image_hdr ((image_header_t *)addr);
@@ -229,13 +300,20 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	data = addr + sizeof(image_header_t);
 	len  = ntohl(hdr->ih_size);
 
+#ifdef CONFIG_HAS_DATAFLASH
+	if (addr_dataflash(addr)){
+		read_dataflash(data, len, (char *)CFG_LOAD_ADDR);
+		data = CFG_LOAD_ADDR;
+	}
+#endif
+
 	if (verify) {
 		puts ("   Verifying Checksum ... ");
-		if (crc32 (0, (uchar *)data, len) != ntohl(hdr->ih_dcrc)) {
+		/*if (crc32 (0, (unsigned char *)data, len) != ntohl(hdr->ih_dcrc)) {
 			printf ("Bad Data CRC\n");
 			SHOW_BOOT_PROGRESS (-3);
 			return 1;
-		}
+		}*/
 		puts ("OK\n");
 	}
 	SHOW_BOOT_PROGRESS (4);
@@ -258,8 +336,6 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	if (hdr->ih_arch != IH_CPU_MICROBLAZE)
 #elif defined(__nios2__)
 	if (hdr->ih_arch != IH_CPU_NIOS2)
-#elif defined(__blackfin__)
-	if (hdr->ih_arch != IH_CPU_BLACKFIN)
 #else
 # error Unknown CPU type
 #endif
@@ -275,7 +351,7 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		name = "Standalone Application";
 		/* A second argument overwrites the load address */
 		if (argc > 2) {
-			hdr->ih_load = htonl(simple_strtoul(argv[2], NULL, 16));
+			hdr->ih_load = simple_strtoul(argv[2], NULL, 16);
 		}
 		break;
 	case IH_TYPE_KERNEL:
@@ -471,6 +547,7 @@ U_BOOT_CMD(
 static void
 fixup_silent_linux ()
 {
+	DECLARE_GLOBAL_DATA_PTR;
 	char buf[256], *start, *end;
 	char *cmdline = getenv ("bootargs");
 
@@ -500,11 +577,6 @@ fixup_silent_linux ()
 }
 #endif /* CONFIG_SILENT_CONSOLE */
 
-#ifdef CONFIG_OF_FLAT_TREE
-extern const unsigned char oftree_dtb[];
-extern const unsigned int oftree_dtb_len;
-#endif
-
 #ifdef CONFIG_PPC
 static void
 do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
@@ -513,6 +585,8 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		ulong	*len_ptr,
 		int	verify)
 {
+	DECLARE_GLOBAL_DATA_PTR;
+
 	ulong	sp;
 	ulong	len, checksum;
 	ulong	initrd_start, initrd_end;
@@ -525,9 +599,6 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 	bd_t	*kbd;
 	void	(*kernel)(bd_t *, ulong, ulong, ulong, ulong);
 	image_header_t *hdr = &header;
-#ifdef CONFIG_OF_FLAT_TREE
-	char	*of_flat_tree;
-#endif
 
 	if ((s = getenv ("initrd_high")) != NULL) {
 		/* a value of "no" or a similar string will act like 0,
@@ -599,19 +670,19 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 	kbd->bi_flbfreq /= 1000000L;
 	kbd->bi_vcofreq /= 1000000L;
 #endif
-#if defined(CONFIG_CPM2)
+#if defined(CONFIG_8260) || defined(CONFIG_MPC8560)
 		kbd->bi_cpmfreq /= 1000000L;
 		kbd->bi_brgfreq /= 1000000L;
 		kbd->bi_sccfreq /= 1000000L;
 		kbd->bi_vco     /= 1000000L;
-#endif
+#endif /* CONFIG_8260 */
 #if defined(CONFIG_MPC5xxx)
 		kbd->bi_ipbfreq /= 1000000L;
 		kbd->bi_pcifreq /= 1000000L;
 #endif /* CONFIG_MPC5xxx */
 	}
 
-	kernel = (void (*)(bd_t *, ulong, ulong, ulong, ulong)) ntohl(hdr->ih_ep);
+	kernel = (void (*)(bd_t *, ulong, ulong, ulong, ulong))hdr->ih_ep;
 
 	/*
 	 * Check if there is an initrd image
@@ -626,7 +697,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		/* Copy header so we can blank CRC field for re-calculation */
 		memmove (&header, (char *)addr, sizeof(image_header_t));
 
-		if (ntohl(hdr->ih_magic)  != IH_MAGIC) {
+		if (hdr->ih_magic  != IH_MAGIC) {
 			puts ("Bad Magic Number\n");
 			SHOW_BOOT_PROGRESS (-10);
 			do_reset (cmdtp, flag, argc, argv);
@@ -635,10 +706,10 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		data = (ulong)&header;
 		len  = sizeof(image_header_t);
 
-		checksum = ntohl(hdr->ih_hcrc);
+		checksum = hdr->ih_hcrc;
 		hdr->ih_hcrc = 0;
 
-		if (crc32 (0, (uchar *)data, len) != checksum) {
+		if (crc32 (0, (char *)data, len) != checksum) {
 			puts ("Bad Header Checksum\n");
 			SHOW_BOOT_PROGRESS (-11);
 			do_reset (cmdtp, flag, argc, argv);
@@ -649,7 +720,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		print_image_hdr (hdr);
 
 		data = addr + sizeof(image_header_t);
-		len  = ntohl(hdr->ih_size);
+		len  = hdr->ih_size;
 
 		if (verify) {
 			ulong csum = 0;
@@ -658,7 +729,7 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 #endif	/* CONFIG_HW_WATCHDOG || CONFIG_WATCHDOG */
 
 			puts ("   Verifying Checksum ... ");
-
+#if 0
 #if defined(CONFIG_HW_WATCHDOG) || defined(CONFIG_WATCHDOG)
 
 			while (cdata < edata) {
@@ -666,20 +737,21 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 
 				if (chunk > CHUNKSZ)
 					chunk = CHUNKSZ;
-				csum = crc32 (csum, (uchar *)cdata, chunk);
+				csum = crc32 (csum, (char *)cdata, chunk);
 				cdata += chunk;
 
 				WATCHDOG_RESET();
 			}
 #else	/* !(CONFIG_HW_WATCHDOG || CONFIG_WATCHDOG) */
-			csum = crc32 (0, (uchar *)data, len);
+			csum = crc32 (0, (char *)data, len);
 #endif	/* CONFIG_HW_WATCHDOG || CONFIG_WATCHDOG */
 
-			if (csum != ntohl(hdr->ih_dcrc)) {
+			if (csum != hdr->ih_dcrc) {
 				puts ("Bad Data CRC\n");
 				SHOW_BOOT_PROGRESS (-12);
 				do_reset (cmdtp, flag, argc, argv);
 			}
+#endif
 			puts ("OK\n");
 		}
 
@@ -793,26 +865,15 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 		initrd_end = 0;
 	}
 
-#ifdef CONFIG_OF_FLAT_TREE
-	if (initrd_start == 0)
-		of_flat_tree = (char *)(((ulong)kbd - OF_FLAT_TREE_MAX_SIZE -
-					sizeof(bd_t)) & ~0xF);
-	else
-		of_flat_tree = (char *)((initrd_start - OF_FLAT_TREE_MAX_SIZE -
-					sizeof(bd_t)) & ~0xF);
-#endif
 
 	debug ("## Transferring control to Linux (at address %08lx) ...\n",
 		(ulong)kernel);
 
 	SHOW_BOOT_PROGRESS (15);
 
-#ifndef CONFIG_OF_FLAT_TREE
-
 #if defined(CFG_INIT_RAM_LOCK) && !defined(CONFIG_E500)
 	unlock_ram_in_cache();
 #endif
-
 	/*
 	 * Linux Kernel Parameters:
 	 *   r3: ptr to board info data
@@ -822,29 +883,6 @@ do_bootm_linux (cmd_tbl_t *cmdtp, int flag,
 	 *   r7: End   of command line string
 	 */
 	(*kernel) (kbd, initrd_start, initrd_end, cmd_start, cmd_end);
-
-#else
-	ft_setup(of_flat_tree, OF_FLAT_TREE_MAX_SIZE, kbd, initrd_start, initrd_end);
-	/* ft_dump_blob(of_flat_tree); */
-
-#if defined(CFG_INIT_RAM_LOCK) && !defined(CONFIG_E500)
-	unlock_ram_in_cache();
-#endif
-	/*
-	 * Linux Kernel Parameters:
-	 *   r3: ptr to OF flat tree, followed by the board info data
-	 *   r4: physical pointer to the kernel itself
-	 *   r5: NULL
-	 *   r6: NULL
-	 *   r7: NULL
-	 */
-	if (getenv("disable_of") != NULL)
-		(*kernel) ((bd_t *)of_flat_tree, initrd_start, initrd_end,
-			cmd_start, cmd_end);
-	else
-		(*kernel) ((bd_t *)of_flat_tree, (ulong)kernel, 0, 0, 0);
-
-#endif
 }
 #endif /* CONFIG_PPC */
 
@@ -855,6 +893,8 @@ do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 		ulong	*len_ptr,
 		int	verify)
 {
+	DECLARE_GLOBAL_DATA_PTR;
+
 	image_header_t *hdr = &header;
 
 	void	(*loader)(bd_t *, image_header_t *, char *, char *);
@@ -909,7 +949,7 @@ do_bootm_netbsd (cmd_tbl_t *cmdtp, int flag,
 		cmdline = "";
 	}
 
-	loader = (void (*)(bd_t *, image_header_t *, char *, char *)) ntohl(hdr->ih_ep);
+	loader = (void (*)(bd_t *, image_header_t *, char *, char *)) hdr->ih_ep;
 
 	printf ("## Transferring control to NetBSD stage-2 loader (at address %08lx) ...\n",
 		(ulong)loader);
@@ -938,6 +978,7 @@ do_bootm_artos (cmd_tbl_t *cmdtp, int flag,
 		ulong	*len_ptr,
 		int	verify)
 {
+	DECLARE_GLOBAL_DATA_PTR;
 	ulong top;
 	char *s, *cmdline;
 	char **fwenv, **ss;
@@ -1085,7 +1126,7 @@ static int image_info (ulong addr)
 	checksum = ntohl(hdr->ih_hcrc);
 	hdr->ih_hcrc = 0;
 
-	if (crc32 (0, (uchar *)data, len) != checksum) {
+	if (crc32 (0, (unsigned char *)data, len) != checksum) {
 		puts ("   Bad Header Checksum\n");
 		return 1;
 	}
@@ -1097,10 +1138,10 @@ static int image_info (ulong addr)
 	len  = ntohl(hdr->ih_size);
 
 	puts ("   Verifying Checksum ... ");
-	if (crc32 (0, (uchar *)data, len) != ntohl(hdr->ih_dcrc)) {
+	/*if (crc32 (0, (unsigned char *)data, len) != ntohl(hdr->ih_dcrc)) {
 		puts ("   Bad Data CRC\n");
 		return 1;
-	}
+	}*/
 	puts ("OK\n");
 	return 0;
 }
@@ -1130,7 +1171,7 @@ int do_imls (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	for (i=0, info=&flash_info[0]; i<CFG_MAX_FLASH_BANKS; ++i, ++info) {
 		if (info->flash_id == FLASH_UNKNOWN)
 			goto next_bank;
-		for (j=0; j<info->sector_count; ++j) {
+		for (j=0; j<CFG_MAX_FLASH_SECT; ++j) {
 
 			if (!(hdr=(image_header_t *)info->start[j]) ||
 			    (ntohl(hdr->ih_magic) != IH_MAGIC))
@@ -1142,7 +1183,7 @@ int do_imls (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			checksum = ntohl(header.ih_hcrc);
 			header.ih_hcrc = 0;
 
-			if (crc32 (0, (uchar *)&header, sizeof(image_header_t))
+			if (crc32 (0, (unsigned char *)&header, sizeof(image_header_t))
 			    != checksum)
 				goto next_sector;
 
@@ -1153,9 +1194,9 @@ int do_imls (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			len  = ntohl(hdr->ih_size);
 
 			puts ("   Verifying Checksum ... ");
-			if (crc32 (0, (uchar *)data, len) != ntohl(hdr->ih_dcrc)) {
+			/*if (crc32 (0, (unsigned char *)data, len) != ntohl(hdr->ih_dcrc)) {
 				puts ("   Bad Data CRC\n");
-			}
+			}*/
 			puts ("OK\n");
 next_sector:		;
 		}
@@ -1247,8 +1288,6 @@ print_type (image_header_t *hdr)
 	case IH_CPU_SPARC64:	arch = "SPARC 64 Bit";		break;
 	case IH_CPU_M68K:	arch = "M68K"; 			break;
 	case IH_CPU_MICROBLAZE:	arch = "Microblaze"; 		break;
-	case IH_CPU_NIOS:	arch = "Nios";			break;
-	case IH_CPU_NIOS2:	arch = "Nios-II";		break;
 	default:		arch = "Unknown Architecture";	break;
 	}
 
@@ -1366,10 +1405,11 @@ static void
 do_bootm_rtems (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 		ulong addr, ulong *len_ptr, int verify)
 {
+	DECLARE_GLOBAL_DATA_PTR;
 	image_header_t *hdr = &header;
 	void	(*entry_point)(bd_t *);
 
-	entry_point = (void (*)(bd_t *)) ntohl(hdr->ih_ep);
+	entry_point = (void (*)(bd_t *)) hdr->ih_ep;
 
 	printf ("## Transferring control to RTEMS (at address %08lx) ...\n",
 		(ulong)entry_point);
@@ -1392,7 +1432,7 @@ do_bootm_vxworks (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 	image_header_t *hdr = &header;
 	char str[80];
 
-	sprintf(str, "%x", ntohl(hdr->ih_ep)); /* write entry-point into string */
+	sprintf(str, "%x", hdr->ih_ep); /* write entry-point into string */
 	setenv("loadaddr", str);
 	do_bootvx(cmdtp, 0, 0, NULL);
 }
@@ -1405,7 +1445,7 @@ do_bootm_qnxelf (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[],
 	char *local_args[2];
 	char str[16];
 
-	sprintf(str, "%x", ntohl(hdr->ih_ep)); /* write entry-point into string */
+	sprintf(str, "%x", hdr->ih_ep); /* write entry-point into string */
 	local_args[0] = argv[0];
 	local_args[1] = str;	/* and provide it via the arguments */
 	do_bootelf(cmdtp, 0, 2, local_args);
@@ -1424,3 +1464,225 @@ do_bootm_lynxkdi (cmd_tbl_t *cmdtp, int flag,
 }
 
 #endif /* CONFIG_LYNXKDI */
+
+
+  /* Section for Android bootimage format support
+   * Refer:
+   * http://android.git.kernel.org/?p=platform/system/core.git;a=blob;f=mkbootimg/bootimg.h
+   */
+
+void
+bootimg_print_image_hdr (boot_img_hdr *hdr)
+{
+#ifdef DEBUG
+	int i;
+	printf ("   Image magic:   %s\n", hdr->magic);
+
+	printf ("   kernel_size:   0x%x\n", hdr->kernel_size);
+	printf ("   kernel_addr:   0x%x\n", hdr->kernel_addr);
+
+	printf ("   rdisk_size:   0x%x\n", hdr->ramdisk_size);
+	printf ("   rdisk_addr:   0x%x\n", hdr->ramdisk_addr);
+
+	printf ("   second_size:   0x%x\n", hdr->second_size);
+	printf ("   second_addr:   0x%x\n", hdr->second_addr);
+
+	printf ("   tags_addr:   0x%x\n", hdr->tags_addr);
+	printf ("   page_size:   0x%x\n", hdr->page_size);
+
+	printf ("   name:      %s\n", hdr->name);
+	printf ("   cmdline:   %s%x\n", hdr->cmdline);
+
+	for (i=0;i<8;i++)
+		printf ("   id[%d]:   0x%x\n", i, hdr->id[i]);
+#endif
+}
+
+#define ALIGN(n,pagesz) ((n + (pagesz - 1)) & (~(pagesz - 1)))
+
+extern int idme_select_boot_image(char **ptn);
+
+
+#define FIRST_FRAGMENT_SIZE_IN_BYTES   (sizeof(CERT_Hashes) + 52)
+#define FIRST_FRAGMENT_SIZE_IN_BLOCKS  ((FIRST_FRAGMENT_SIZE_IN_BYTES + 511)/512)
+
+#define IMAGE_COARSE_OFFSET            (ISW_CERTIFICATE_LENGTH_FULL/512)
+#define IMAGE_FINE_OFFSET              (ISW_CERTIFICATE_LENGTH_FULL%512)
+
+#ifdef SIGNATURE_AUTHENTICATION
+
+int authentify_image(int mmcc, int start_sector)
+{
+#if (CONFIG_MMC)
+	unsigned char      *addr      = (unsigned char*)load_addr;
+	unsigned int        sector    = start_sector;
+        unsigned int        nb_bytes = 0;
+	CERT_Hashes        *ISW_hash_struct_ptr = (CERT_Hashes*)((u8*)load_addr + 52);
+
+
+	/* load first fragment to determine image size thanks to the certificate  */
+	if (mmc_read(mmcc, sector, addr, FIRST_FRAGMENT_SIZE_IN_BLOCKS*512) != 1) {
+		printf("booti: mmc failed to read certificate\n");
+		return -1;
+	}
+	addr   += FIRST_FRAGMENT_SIZE_IN_BLOCKS*512;
+	sector += FIRST_FRAGMENT_SIZE_IN_BLOCKS;
+
+	/* Load image */
+        nb_bytes    = ISW_hash_struct_ptr->length + ISW_hash_struct_ptr->start_offset;
+        nb_bytes   -= FIRST_FRAGMENT_SIZE_IN_BLOCKS*512; // removed block which have been already loaded
+
+	if (mmc_read(mmcc, sector, addr, nb_bytes) != 1) {
+		printf("booti: failed to load image\n");
+		return -1;
+	}
+
+        return certificate_signature_verify((unsigned char*)load_addr);
+
+#else /* CONFIG_MMC */
+	return 0;
+#endif
+}
+#endif
+
+/* load_fragment function allows user to load a fragment which is not aligned on a block boundary.
+ * This is required because ISW certificate length is not a multiple of 512 :-(
+ */
+int load_fragment(int mmcc, unsigned int sector, unsigned int offset, char* dest, unsigned int size)
+{
+	static  unsigned char  buffer[512];
+
+	unsigned int shift = 0;
+
+	if(offset != 0) {
+		if (mmc_read(mmcc, sector, buffer, 512) != 1) return -1;
+		shift = 512 - offset;
+		memcpy(dest, buffer + offset, shift);
+		sector++;
+	}
+
+	if(mmc_read(mmcc, sector, dest+shift, size-shift) != 1) return -1;
+
+	return 1;
+}
+
+#define KERNEL_PHY_LOAD_ADDRESS	0x80008000
+
+/* booti <addr> [ mmc0 | mmc1 [ <partition> ] ] */
+int do_booti (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+
+        unsigned addr;
+	char *ptn = "boot";
+	int mmcc = -1;
+	boot_img_hdr *hdr;
+
+        idme_select_boot_image(&ptn);
+        printf("booting %s partition\n", ptn);
+#if defined (CONFIG_FASTBOOT_COUNTDOWN)
+	printf("Enter fastboot first ...\n");
+	do_fastboot(NULL, 3, 0, NULL);
+#endif
+	if (argc < 2)
+		return -1;
+
+	if (!strcmp(argv[1],"mmc0")) {
+		mmcc = 0;
+	} else if (!strcmp(argv[1],"mmc1")) {
+		mmcc = 1;
+	} else {
+		addr = simple_strtoul(argv[1], NULL, 16);
+	}
+
+	if (argc > 2)
+		ptn = argv[2];
+
+	if (mmcc != -1) {
+#if (CONFIG_MMC)
+		struct fastboot_ptentry *pte;
+		unsigned sector;
+		unsigned char *rdisk_src_addr;
+
+		pte = fastboot_flash_find_ptn(ptn);
+		if (!pte) {
+			printf("booti: cannot find '%s' partition\n", ptn);
+			goto fail;
+		}
+		if (mmc_init(mmcc)) {
+			printf("mmc%d init failed\n", mmcc);
+			goto fail;
+		}
+
+		/*
+		 * Select the load_addr such that kernel is loaded at
+		 * 0x80008000. With this trick we don't have to move kernel
+		 * again
+		 */
+		load_addr = KERNEL_PHY_LOAD_ADDRESS -
+			(ISW_CERTIFICATE_LENGTH_FULL + CFG_FASTBOOT_MKBOOTIMAGE_PAGE_SIZE);
+
+		if(authentify_image(mmcc, pte->start) != 0) {
+			printf("booti: Authentification failure\n");
+#ifdef CONFIG_MACH_OTTER2
+			show_authfailed();
+#endif
+			goto fail;
+		}
+
+		/* set the boot.img header */
+		hdr = (unsigned char *)load_addr + ISW_CERTIFICATE_LENGTH_FULL;
+
+		if (memcmp(hdr->magic, BOOT_MAGIC, 8)) {
+			printf("booti: bad boot image magic\n");
+			goto fail;
+		}
+
+		rdisk_src_addr = KERNEL_PHY_LOAD_ADDRESS + ALIGN(hdr->kernel_size, hdr->page_size);
+		memmove((void*) hdr->ramdisk_addr, rdisk_src_addr, hdr->ramdisk_size);
+#else
+		return -1;
+#endif
+	} else {
+		unsigned kaddr, raddr;
+
+		/* set this aside somewhere safe */
+		memcpy(hdr, (void*) addr, sizeof(*hdr));
+
+		if (memcmp(hdr->magic, BOOT_MAGIC, 8)) {
+			printf("booti: bad boot image magic\n");
+			return 1;
+		}
+
+		bootimg_print_image_hdr(hdr);
+
+		kaddr = addr + hdr->page_size;
+		raddr = kaddr + ALIGN(hdr->kernel_size, hdr->page_size);
+
+		memmove((void*) hdr->kernel_addr, kaddr, hdr->kernel_size);
+		memmove((void*) hdr->ramdisk_addr, raddr, hdr->ramdisk_size);
+	}
+
+	printf("kernel   @ %08x (%d)\n", hdr->kernel_addr, hdr->kernel_size);
+	printf("ramdisk  @ %08x (%d)\n", hdr->ramdisk_addr, hdr->ramdisk_size);
+
+	/* Start MPU wdt for 60 second timeout */
+	watchdog_start(60);
+	do_booti_linux(hdr);
+
+	/* Stop wdt in case kernel boot failed */
+	watchdog_init();
+
+	puts ("booti: Control returned to monitor - resetting...\n");
+	do_reset (cmdtp, flag, argc, argv);
+	return 1;
+
+fail:
+	return do_fastboot(NULL, 0, 0, NULL);
+}
+
+U_BOOT_CMD(
+	booti,	3,	1,	do_booti,
+	"booti   - boot android bootimg from memory\n",
+	"<addr>\n    - boot application image stored in memory\n"
+	"\t'addr' should be the address of boot image which is zImage+ramdisk.img\n"
+);

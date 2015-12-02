@@ -114,6 +114,7 @@ static void send_reset(void)
 /*-----------------------------------------------------------------------
  * START: High -> Low on SDA while SCL is High
  */
+
 static void send_start(void)
 {
 #ifdef	CONFIG_MPC8260
@@ -186,6 +187,7 @@ static void send_ack(int ack)
 /*-----------------------------------------------------------------------
  * Send 8 bits and look for an acknowledgement.
  */
+
 static int write_byte(uchar data)
 {
 #ifdef	CONFIG_MPC8260

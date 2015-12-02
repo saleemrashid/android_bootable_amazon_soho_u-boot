@@ -16,3 +16,18 @@ EXPORT_FUNC(do_reset)
 EXPORT_FUNC(i2c_write)
 EXPORT_FUNC(i2c_read)
 #endif	/* CFG_CMD_I2C */
+#if defined(CONFIG_BQ27541)
+EXPORT_FUNC(bq27541_capacity)
+EXPORT_FUNC(bq27541_temperature)
+EXPORT_FUNC(bq27541_voltage)
+EXPORT_FUNC(bq27541_current)
+EXPORT_FUNC(bq27541_flags)
+EXPORT_FUNC(bq27541_type)
+#endif
+#if defined(CONFIG_SMB347)
+EXPORT_FUNC(smb347_aicl_current)
+EXPORT_FUNC(smb347_apsd_result)
+EXPORT_FUNC(smb347_charging_current)
+EXPORT_FUNC(smb347_config_enable)
+EXPORT_FUNC(smb347_redo_apsd)
+#endif

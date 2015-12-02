@@ -34,7 +34,7 @@
 #include <common.h>
 #include <command.h>
 #if !defined(CONFIG_INTEGRATOR) && ! defined(CONFIG_ARCH_CINTEGRATOR)
-#include <asm/arch/omap2420.h>
+#include <asm/arch/cpu.h>
 #endif
 
 #ifdef CONFIG_USE_IRQ

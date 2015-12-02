@@ -45,22 +45,149 @@ OBJS	= 3c589.o 5701rls.o ali512x.o \
 	  serial_pl010.o serial_pl011.o serial_xuartlite.o \
 	  sl811_usb.o sm501.o smc91111.o smiLynxEM.o \
 	  status_led.o sym53c8xx.o \
-	  ti_pci1410a.o tigon3.o tsec.o \
+	  twl4030.o ti_pci1410a.o tigon3.o tsec.o \
 	  usbdcore.o usbdcore_ep0.o usbdcore_omap1510.o usbtty.o \
 	  videomodes.o w83c553f.o \
-	  ks8695eth.o \
+	  ks8695eth.o smsc9118.o \
 	  pxa_pcmcia.o mpc8xx_pcmcia.o tqm8xx_pcmcia.o	\
-	  rpx_pcmcia.o
+	  rpx_pcmcia.o fastboot.o ks885x_interface.o \
+	  bq27541.o bq27200.o
 
-all:	$(LIB)
+OBJS	+= battery_loop.o display_lcd.o twl6030.o smb347.o
+
+ifeq ($(PLATFORM), jem)
+OBJS	+= jem_lcd.o splash.o lowbattery.o show_charging.o showfastboot.o show_multi_download.o devicetoohot.o
+OBJS	+= bowser_bl.o dmtimer.o show_charging_low.o
+endif
+ifeq ($(PLATFORM), soho)
+OBJS	+= soho_lcd.o splash_tate.o lowbattery_tate.o charging_tate.o showfastboot_tate.o show_multi_download.o devicetoohot_tate.o
+OBJS	+= soho_sound.o
+endif
+
+ifeq ($(PLATFORM), bowser)
+OBJS	+= tate_lcd.o splash_tate.o lowbattery_tate.o showfastboot_tate.o charging_tate.o provfailed_tate.o devicetoohot_tate.o
+OBJS	+= bowser_bl.o dmtimer.o
+endif
+
+all:	.depend $(LIB)
+
+ifeq ($(PLATFORM), jem)
+
+splash.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm initlogo.rle $@
+
+devicetoohot.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm devicetoohot.gz $@
+
+lowbattery.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm lowbattery.gz $@
+
+show_charging_low.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm charging_low.gz $@
+
+show_charging.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm charging.gz $@
+
+showfastboot.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm fastboot.gz $@
+
+show_multi_download.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm multi_download.gz $@
+endif
+ifeq ($(PLATFORM), soho)
+
+splash_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm initlogo_soho.gz $@
+
+devicetoohot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm devicetoohot_soho.gz $@
+
+lowbattery_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm lowbattery_tate.gz $@
+
+charging_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm charging_tate.gz $@
+
+charging_tate_low.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm charging_tate_low.gz $@
+
+showfastboot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm fastboot_tate.gz $@
+
+show_multi_download.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm multi_download.gz $@
+endif
+
+ifeq ($(PLATFORM), bowser)
+
+splash_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm initlogo_tate.rle $@
+
+devicetoohot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm devicetoohot.rle $@
+
+provfailed_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm provfailed.rle $@
+
+lowbattery_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm lowbattery_tate.gz $@
+
+charging_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm charging_tate.gz $@
+
+showfastboot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm fastboot_tate.gz $@
+endif
+
+
+ifeq ($(PLATFORM), tate)
+
+splash_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm initlogo_tate.rle $@
+
+devicetoohot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm devicetoohot.rle $@
+
+provfailed_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm provfailed.rle $@
+
+lowbattery_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm lowbattery_tate.gz $@
+
+charging_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm charging_tate.gz $@
+
+showfastboot_tate.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -v -B arm fastboot_tate.gz $@
+
+endif
+
+ifeq ($(PLATFORM), otter2)
+
+splash_otter2.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm initlogo_otter2.rle $@
+
+lowbattery_otter2.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm lowbattery_otter2.gz $@
+
+lowbattery_charging_otter2.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm lowbattery_charging_otter2.gz $@
+
+authfailed_otter2.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm authfailed_otter2.gz $@
+
+fastboot_logo_otter2.o:
+	$(OBJCOPY) -I binary -O elf32-littlearm -B arm fastboot_logo_otter2.gz $@
+
+endif
 
 $(LIB): $(OBJS)
 	$(AR) crv $@ $(OBJS)
 
 #########################################################################
 
-.depend:	Makefile $(OBJS:.o=.c)
-		$(CC) -M $(CFLAGS) $(OBJS:.o=.c) > $@
+.depend:	Makefile $(wildcard $(OBJS:.o=.c))
+		$(CC) -M $(CFLAGS) $(wildcard $(OBJS:.o=.c)) > $@
 
 sinclude .depend
 

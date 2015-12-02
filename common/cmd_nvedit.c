@@ -38,7 +38,6 @@
  *
  **************************************************************************
  */
-
 #include <common.h>
 #include <command.h>
 #include <environment.h>
@@ -57,8 +56,10 @@ DECLARE_GLOBAL_DATA_PTR;
     !defined(CFG_ENV_IS_IN_FLASH)	&& \
     !defined(CFG_ENV_IS_IN_DATAFLASH)	&& \
     !defined(CFG_ENV_IS_IN_NAND)	&& \
+    !defined(CFG_ENV_IS_IN_EMMC)	&& \
     !defined(CFG_ENV_IS_NOWHERE)
-# error Define one of CFG_ENV_IS_IN_{NVRAM|EEPROM|FLASH|DATAFLASH|NOWHERE}
+# error Define one of CFG_ENV_IS_IN_{NVRAM|EEPROM|FLASH|DATAFLASH \
+						|NAND|EMMC|NOWHERE}
 #endif
 
 #define XMK_STR(x)	#x
@@ -286,7 +287,7 @@ int _do_setenv (int flag, int argc, char *argv[])
 
 	/* Delete only ? */
 	if ((argc < 3) || argv[2] == NULL) {
-		env_crc_update ();
+	/*	env_crc_update (); */
 		return 0;
 	}
 
@@ -324,7 +325,7 @@ int _do_setenv (int flag, int argc, char *argv[])
 	*++env = '\0';
 
 	/* Update CRC */
-	env_crc_update ();
+	/*env_crc_update (); */
 
 	/*
 	 * Some variables should be updated when the corresponding
@@ -534,14 +535,47 @@ int getenv_r (char *name, char *buf, unsigned len)
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_FLASH)) == \
       (CFG_CMD_ENV|CFG_CMD_FLASH)) || \
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_NAND)) == \
-      (CFG_CMD_ENV|CFG_CMD_NAND))
+      (CFG_CMD_ENV|CFG_CMD_NAND)) || \
+    ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_MMC)) == \
+      (CFG_CMD_ENV|CFG_CMD_MMC))
 int do_saveenv (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	extern char * env_name_spec;
+	char c;
 
-	printf ("Saving Environment to %s...\n", env_name_spec);
+	if (argc > 2)
+		goto env_cmd_usage;
 
-	return (saveenv() ? 1 : 0);
+	if (argc == 1) {
+		printf("Type 'y' or 'Y' to Save Environment to %s..\n",
+							env_name_spec);
+		for (;;) {
+			c = serial_getc();
+			switch (c) {
+			case 'y':
+			case 'Y':
+				printf("Saving Environment to %s...\n",
+								env_name_spec);
+				return saveenv() ? 1 : 0;
+			default:
+				printf("Not Saving Environment to %s...\n",
+								env_name_spec);
+				return 1;
+			}
+		}
+	}
+	if (argc == 2) {
+		if (strncmp(argv[1] , "-f", 2) != 0) {
+			goto env_cmd_usage;
+		} else {
+			printf("Saving Environment to %s...\n", env_name_spec);
+			return saveenv() ? 1 : 0;
+		}
+	}
+
+env_cmd_usage:
+	printf("Usage:\n%s\n", cmdtp->usage);
+	return 1;
 }
 
 
@@ -592,11 +626,14 @@ U_BOOT_CMD(
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_FLASH)) == \
       (CFG_CMD_ENV|CFG_CMD_FLASH)) || \
     ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_NAND)) == \
-      (CFG_CMD_ENV|CFG_CMD_NAND))
+      (CFG_CMD_ENV|CFG_CMD_NAND)) || \
+    ((CONFIG_COMMANDS & (CFG_CMD_ENV|CFG_CMD_MMC)) == \
+      (CFG_CMD_ENV|CFG_CMD_MMC))
 U_BOOT_CMD(
-	saveenv, 1, 0,	do_saveenv,
+	saveenv, 2, 0,	do_saveenv,
 	"saveenv - save environment variables to persistent storage\n",
-	NULL
+	"\n"
+	"saveenv -force \n"
 );
 
 #endif	/* CFG_CMD_ENV */

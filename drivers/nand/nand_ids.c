@@ -73,7 +73,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	* and the erasesize is determined from the extended id bytes
 	*/
 	/* 1 Gigabit */
-	{"NAND 128MiB 1,8V 8-bit", 	0xA1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
+	{"NAND 128MiB 1,8V 8-bit", 	0xA1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR}, /* sdp3430*/
 	{"NAND 128MiB 3,3V 8-bit", 	0xF1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
 	{"NAND 128MiB 1,8V 16-bit", 	0xB1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
 	{"NAND 128MiB 3,3V 16-bit", 	0xC1, 0, 128, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
@@ -81,7 +81,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	/* 2 Gigabit */
 	{"NAND 256MiB 1,8V 8-bit", 	0xAA, 0, 256, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
 	{"NAND 256MiB 3,3V 8-bit", 	0xDA, 0, 256, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_NO_AUTOINCR},
-	{"NAND 256MiB 1,8V 16-bit", 	0xBA, 0, 256, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
+	{"NAND 256MiB 1,8V 16-bit", 	0xBA, 0, 256, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR}, /* lab3430 */
 	{"NAND 256MiB 3,3V 16-bit", 	0xCA, 0, 256, 0, NAND_SAMSUNG_LP_OPTIONS | NAND_BUSWIDTH_16 | NAND_NO_AUTOINCR},
 
 	/* 4 Gigabit */
@@ -123,6 +123,7 @@ struct nand_manufacturers nand_manuf_ids[] = {
 	{NAND_MFR_NATIONAL, "National"},
 	{NAND_MFR_RENESAS, "Renesas"},
 	{NAND_MFR_STMICRO, "ST Micro"},
+	{NAND_MFR_MICRON, "Micron"},
 	{0x0, "Unknown"}
 };
 #endif
